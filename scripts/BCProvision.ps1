@@ -1,5 +1,5 @@
 Param(
-    [boolean] [Parameter(Mandatory = $false)] $PerformInstall = $true,
+    [boolean] [Parameter(Mandatory = $false)] $PerformInstall = $false,
     [string] [Parameter(Mandatory = $false)] $Branch = "master"
 )
 
