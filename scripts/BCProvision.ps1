@@ -1,12 +1,9 @@
 Param(
     [boolean] [Parameter(Mandatory = $false)] $InstallPreReqs = $false,
     [string] [Parameter(Mandatory = $false)] $Branch = "master",
-    [string] [Parameter(Mandatory = $false)] $LocalRepoPath = "C:\Dev\Repos"
+    [string] [Parameter(Mandatory = $false)] $LocalRepoPath = "C:\Dev\Repos",
+    [string] [Parameter(Mandatory = $false)] $BCVersion
 )
-
-$Text = "BC DevOps"
-$UniqueId = "BCDevOps"
-
 
 function Install-PowerAppsAdmin {
     $moduleName = "Microsoft.PowerApps.Administration.PowerShell"
@@ -25,7 +22,7 @@ function Install-PowerAppsAdmin {
 function Install-PreRequisites {
     $message = "Installing Chocolatey ...."
     Write-Host $message -ForegroundColor Green
-    iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
  
     $message = "Installing Git ...."
     Write-Host $message -ForegroundColor Green   
@@ -62,7 +59,7 @@ function DevOps-Install {
 
     $ErrorActionPreference = "SilentlyContinue"
 
-    az extension add --name azure-devops -ErrorAction $ErrorActionPreference
+    az extension add --name azure-devops
 
     Remove-Item AzureCli.msi -ErrorAction $ErrorActionPreference
 
@@ -77,7 +74,9 @@ function DevOps-Install {
 
     $azSubs = az login --allow-no-subscriptions
 
-    Write-Host ""
+    $Host.UI.RawUI.BackgroundColor = $bckgrnd
+    Clear-Host
+    Write-Host "Login complete"
     $adoCreate = Read-Host -Prompt "Would you like to [C]reate a new Project or [S]elect and existing one (Default [S])"
 
     if ($adoCreate -eq "C") {
@@ -93,7 +92,6 @@ function DevOps-Install {
         $options = $selection | ForEach-Object { New-Object System.Management.Automation.Host.ChoiceDescription "&$($choiceIndex) - $($_.Name)"; $choiceIndex++ }
         $chosenIndex = $host.ui.PromptForChoice("DevOps Project", "Select the Project you wish to use", $options, 0)
         $adoProject = $selection[$chosenIndex].Name 
-
     }
 
     Write-Host ""
@@ -105,7 +103,7 @@ function DevOps-Install {
     az devops configure --defaults organization=https://dev.azure.com/$adoOrg project=$adoProject
 
     $repo = az repos create --name $adoRepo | Out-String | ConvertFrom-Json
-    az repos import create --git-source-url https://github.com/YellowChook/BC4.0.git --repository $adoRepo
+    az repos import create --git-source-url "https://github.com/YellowChook/$BCVersion.git" --repository $adoRepo
 
     WriteProgressMessage("Cloning Git Repo $adoRepo locally")
     Write-Host "If prompted for credentials, enter the same credentials you used for dev.azure.com"
@@ -113,7 +111,7 @@ function DevOps-Install {
     $FullLocalRepoPath = "$LocalRepoPath\$adoProject\$adoRepo"
     git clone $repo.webUrl "$FullLocalRepoPath"
 
-    chdir -Path $FullLocalRepoPath
+    Set-Location -Path $FullLocalRepoPath
 
     WriteProgressMessage("Confirming Git User Details")
 
@@ -129,7 +127,6 @@ function DevOps-Install {
         $GitEmail = Read-Host "Enter your email address (to use when committing changes to Git)"
         git config --global user.email $GitEmail
     }
-
 
     WriteProgressMessage("Cleaning up Git Repository")
 
@@ -509,6 +506,7 @@ Welcome to the Business Central DevOps provisioning script. This script will per
 
 "@
 
+$bckgrnd = $Host.UI.RawUI.BackgroundColor
 Clear-Host
 Write-Host $message
 
@@ -517,9 +515,23 @@ if ($quit -eq "Q") {
     exit
 }
 
-# Put something here to read the avilable repos under the YellowChook user and let the user select from any that start with BC
-$BCVersion = 'BC4.0'
-    
+# Get the YellowChook repos
+$YellowChookRepos = Invoke-WebRequest "api.github.com/users/YellowChook/repos"
+$ReposJson = $YellowChookRepos.Content | ConvertFrom-Json
+$BCVersionsAvailable = $ReposJson | Where-Object { ($_.Name -Match "^BC.*") }
+if ($BCVersion -notin $BCVersionsAvailable.Name) {
+    if ($BCVersionsAvailable.Length -eq 1) {
+        $BCVersion = $BCVersionsAvailable.Name
+    } 
+    else {
+        $selection = $BCVersionsAvailable | Select-Object Name 
+        $choiceIndex = 0
+        $options = $selection | ForEach-Object { New-Object System.Management.Automation.Host.ChoiceDescription "&$($choiceIndex) - $($_.Name)"; $choiceIndex++ }
+        $chosenIndex = $host.ui.PromptForChoice("BC Version", "Select the Version you wish to use", $options, $BCVersionsAvailable.Length - 1)
+        $BCVersion = $selection[$chosenIndex].Name 
+    }    
+}
+WriteProgressMessage("Creating new repo for $BCVersion")
 
 if ($InstallPreReqs) {
     Write-Host("Performing Checks....")
