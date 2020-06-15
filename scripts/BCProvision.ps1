@@ -1,23 +1,14 @@
 Param(
-    [boolean] [Parameter(Mandatory = $false)] $PerformInstall = $false,
-    [string] [Parameter(Mandatory = $false)] $Branch = "master"
+    [boolean] [Parameter(Mandatory = $false)] $InstallPreReqs = $false,
+    [string] [Parameter(Mandatory = $false)] $Branch = "master",
+    [string] [Parameter(Mandatory = $false)] $LocalRepoPath = "C:\Dev\Repos"
 )
 
 $Text = "BC DevOps"
 $UniqueId = "BCDevOps"
 
-Function InstallToastModule {
-    $moduleName = "BurntToast"
-    if (!(Get-Module -ListAvailable -Name $moduleName )) {
-        Write-host "Module $moduleName Not found, installing now"
-        Install-Module -Name $moduleName -Force -Scope CurrentUser
-    }
-    else {
-        Write-host "Module $moduleName Found"
-    }
-}
 
-function InstallPowerAppsAdmin {
+function Install-PowerAppsAdmin {
     $moduleName = "Microsoft.PowerApps.Administration.PowerShell"
     $moduleVersion = "2.0.33"
     $module = Get-Module -ListAvailable -Name $moduleName
@@ -30,34 +21,20 @@ function InstallPowerAppsAdmin {
     }
 }
 
-function DevOps-PreReq {
-    $message = "Checking Pre-requisites"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.1
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
 
-    PreReq-Install  
-}
-
-function PreReq-Install {
+function Install-PreRequisites {
     $message = "Installing Chocolatey ...."
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.12
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
-
-    Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+    Write-Host $message -ForegroundColor Green
+    iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
  
     $message = "Installing Git ...."
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.15
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    Write-Host $message -ForegroundColor Green   
 
     choco upgrade git.install -y
     
     $message = "Installing Azure CLI ...."
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.18
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    Write-Host $message -ForegroundColor Green
+    
     choco upgrade azure-cli -y 
 
     ## Restart PowerShell Environment to Enable Azure CLI
@@ -69,25 +46,27 @@ function Restart-PowerShell {
     refreshenv
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User") 
     Clear-Host
-    DevOps-Install
+}
+
+function WriteProgressMessage {
+    param (
+        $TextToWrite
+    )
+    Write-Host
+    Write-Host $TextToWrite -ForegroundColor Green
 }
 
 function DevOps-Install {
     ## Install Azure DevOps Extension
-    $message = "Installing azure-devops extension"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.20
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
-
-    az extension add --name azure-devops
+    WriteProgressMessage("Installing azure-devops extension")
 
     $ErrorActionPreference = "SilentlyContinue"
+
+    az extension add --name azure-devops -ErrorAction $ErrorActionPreference
+
     Remove-Item AzureCli.msi -ErrorAction $ErrorActionPreference
 
-    $message = "Connecting to Azure DevOps Organisation"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.30
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    WriteProgressMessage("Connecting to Azure DevOps Organisation")
 
     $adoOrg = Read-Host -Prompt "Enter the <Name> of your Azure DevOps Organisation (https://dev.azure.com/<Name>)"
 
@@ -104,10 +83,7 @@ function DevOps-Install {
     if ($adoCreate -eq "C") {
         $adoProject = Read-Host -Prompt "Please enter the Name of the Project you wish to Create"
 
-        $message = "Creating DevOps Project $adoProject"
-        Write-Host $message
-        $ProgressBar = New-BTProgressBar -Status $message -Value 0.35
-        New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+        WriteProgressMessage("Creating DevOps Project $adoProject")
 
         az devops project create --name $adoProject --organization=https://dev.azure.com/$adoOrg --process Agile
     }
@@ -122,50 +98,24 @@ function DevOps-Install {
 
     Write-Host ""
     $AppName = Read-Host -Prompt "Enter the name for the BC App you wish to create"
-    #$adoRepo = $AppName.Replace(' ', '') -- Need to check with Eugene and Dylan why they don't allow spaces in the name of their repos?
     $adoRepo = $AppName
 
-    $message = "Creating Git Repo $adoRepo"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.38
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    WriteProgressMessage("Creating Git Repo $adoRepo")
 
     az devops configure --defaults organization=https://dev.azure.com/$adoOrg project=$adoProject
 
     $repo = az repos create --name $adoRepo | Out-String | ConvertFrom-Json
     az repos import create --git-source-url https://github.com/YellowChook/BC4.0.git --repository $adoRepo
 
-    $message = "Cloning Git Repo $adoRepo locally"
-    Write-Host $message
+    WriteProgressMessage("Cloning Git Repo $adoRepo locally")
     Write-Host "If prompted for credentials, enter the same credentials you used for dev.azure.com"
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.40
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
 
-    git clone $repo.webUrl \Dev\Repos\$adoRepo 
+    $FullLocalRepoPath = "$LocalRepoPath\$adoProject\$adoRepo"
+    git clone $repo.webUrl "$FullLocalRepoPath"
 
-    $message = "Create PowerApps Check Azure AD Application"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.50
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    chdir -Path $FullLocalRepoPath
 
-    # **************** Update From here!
-
-
-    # I don't have a manifest file - should this by where I update my app.json file?
-    #$manifest = Invoke-WebRequest "https://github.com/dylanhaskins/PowerPlatformCICD/raw/$branch/manifest.json" -UseBasicParsing:$true
-    #Set-Content .\manifest.json -Value $manifest.Content
-
-
-    #$adApp = az ad app create --display-name "PowerApp Checker App" --native-app --required-resource-accesses manifest.json --reply-urls "urn:ietf:wg:oauth:2.0:oob" | ConvertFrom-Json
-    #$azureADAppPassword = (New-Guid).Guid.Replace("-", "")
-    #$adAppCreds = az ad app credential reset --password $azureADAppPassword --id $adApp.appId | ConvertFrom-Json
-
-    chdir -Path \Dev\Repos\$adoRepo\
-
-    $message = "Confirming Git User Details"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.59
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    WriteProgressMessage("Confirming Git User Details")
 
     $GitUser = git config --global user.name
     $GitEmail = git config --global user.email
@@ -181,10 +131,7 @@ function DevOps-Install {
     }
 
 
-    $message = "Cleaning up Git Repository"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.60
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    WriteProgressMessage("Cleaning up Git Repository")
 
     git checkout $branch
     git branch | select-string -notmatch $branch | foreach { git branch -D ("$_").Trim() } #Remove non-used local branches
@@ -195,15 +142,12 @@ function DevOps-Install {
     git add .
     git remote add origin $repo.webUrl
 
-    chdir -Path \Dev\Repos\$adoRepo\app\
+    chdir -Path $FullLocalRepoPath\app\
 
     Write-Host ""
     Write-Host ""
 
-    $message = "Setting app details in Source Code"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 0.80
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    WriteProgressMessage("Setting app details in Source Code")
     
     $appJsonContent = (Invoke-WebRequest "https://raw.githubusercontent.com/YellowChook/$BCVersion/$branch/app/app.json" -UseBasicParsing:$true) | ConvertFrom-Json
     $appJsonContent.id = (New-Guid)
@@ -212,12 +156,12 @@ function DevOps-Install {
     $appjsonContent.description = $AppName
     $appJsonContent.contextSensitiveHelpUrl = "https://intergendocs.z23.web.core.windows.net/$($appJsonContent.id)/$($appJsonContent.version)"
 
-    $appJsonContent | ConvertTo-Json | Set-Content -Path \Dev\Repos\$adoRepo\app\app.json
+    $appJsonContent | ConvertTo-Json | Set-Content -Path $FullLocalRepoPath\app\app.json
 
     # Rename workspace for app name
     $WorkspaceName = $AppName.Replace(' ', '')
-    Rename-Item -Path "\Dev\Repos\$adoRepo\YourAppName.code-workspace" -NewName "$WorkspaceName.code-workspace"
-    Rename-Item -Path "\Dev\Repos\$adoRepo\app\Translations\YourAppName.g.xlf" -NewName "$AppName.g.xlf"
+    Rename-Item -Path "$FullLocalRepoPath\YourAppName.code-workspace" -NewName "$WorkspaceName.code-workspace"
+    Rename-Item -Path "$FullLocalRepoPath\app\Translations\YourAppName.g.xlf" -NewName "$AppName.g.xlf"
 
     
     #$message = "Connecting to Power Platform"
@@ -523,13 +467,11 @@ function DevOps-Install {
     }
     #>
 
-    $message = "Complete ... Enjoy !!!"
-    Write-Host $message
-    $ProgressBar = New-BTProgressBar -Status $message -Value 1
-    New-BurntToastNotification -Text $Text -ProgressBar $ProgressBar -Silent -UniqueIdentifier $UniqueId
+    Write-Host
+    WriteProgressMessage("Complete ... Enjoy !!!")
 
     # Launch the new Workspace in VS Code
-    code "\Dev\Repos\$adoRepo\$WorkspaceName.code-workspace"
+    code "$FullLocalRepoPath\$WorkspaceName.code-workspace"
 
 }
 
@@ -546,7 +488,7 @@ U | __")uU /"___|     |  _"\ \| ___"|/\ \   /"/u    \/"_ \/U|  _"\ u / __"| u
 
 Welcome to the Business Central DevOps provisioning script. This script will perform the following steps automatically:
 
- - Install the Pre-Requisites (git and Azure CLI) if required
+ - Use -InstallPreReqs = \$true to install chocolatey, git, and Azure CLI
  - Connect to Azure DevOps (You will need to have an Azure DevOps organisation to use, if you don't have one, please create one at https://dev.azure.com)
  - Allow you to Create a New Project in Azure DevOps or to Select an existing one
  - Create a New Git Repository in the Project to store your Source Code
@@ -578,15 +520,13 @@ if ($quit -eq "Q") {
 # Put something here to read the avilable repos under the YellowChook user and let the user select from any that start with BC
 $BCVersion = 'BC4.0'
     
-Write-Host("Performing Checks....")
-InstallToastModule
-Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-InstallPowerAppsAdmin
 
-if ($PerformInstall) {
-    DevOps-Install
-}
-else {
-    DevOps-PreReq
+if ($InstallPreReqs) {
+    Write-Host("Performing Checks....")
+
+    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    Install-PowerAppsAdmin
+    Install-PreRequisites
 }
 
+DevOps-Install
